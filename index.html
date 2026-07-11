@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<title>Fix-Bypass Round 1</title>
+<style>
+  body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:0;padding:16px;background:#f2f2f7;color:#111}
+  h1{font-size:19px}
+  a.card{display:block;text-decoration:none;color:#111;background:#fff;padding:14px;border-radius:12px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .cve{font-size:11px;color:#007aff;font-weight:700}
+  .t{font-size:15px;font-weight:600;margin:2px 0}
+  .d{font-size:12px;color:#666}
+</style>
+</head>
+<body>
+<h1>Round 1 — Fix-Bypass Re-tests</h1>
+<a class="card" href="01-cam-mic-statemachine.html"><div class="cve">CVE-2025-31192 / 43356</div><div class="t">01 · Camera/Mic State Machine</div><div class="d">Probe camera reactivation after explicit deny across permission pairs.</div></a>
+<a class="card" href="02-geo-origin-spoof.html"><div class="cve">CVE-2025-30466</div><div class="t">02 · Geolocation Origin Spoof</div><div class="d">Fire location prompt mid cross-origin transition; check displayed origin.</div></a>
+<a class="card" href="03-picker-overlay.html"><div class="cve">CVE-2025-43228</div><div class="t">03 · Picker / Camera Overlay Nav</div><div class="d">Navigate while file/camera picker is on screen; check origin confusion.</div></a>
+</body>
+</html>

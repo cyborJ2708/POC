@@ -1,0 +1,9 @@
+{
+  "name": "FixBypass R1",
+  "short_name": "FBR1",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#f2f2f7",
+  "theme_color": "#007aff",
+  "icons": []
+}
