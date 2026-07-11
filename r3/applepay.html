@@ -20,7 +20,7 @@
 </head>
 <body>
 <h1>Round 3 — Apple Pay Sheet Probe</h1>
-<p class="sub">Origin/label attribution + availability leak on the Apple Pay sheet. When embedded cross-origin (open via wrapper.html on domain A), the sheet SHOULD show the top origin. Bug = it shows the wrong origin, or attacker-controlled labels appear on the trusted sheet, or availability/card state leaks with no gesture in a 3rd-party context.</p>
+<p class="sub">Origin/label attribution + availability leak on the Apple Pay sheet. Open via wrapper.html (domain A) to test cross-origin sheet origin. Bug = sheet shows wrong/blank origin, attacker labels on the trusted sheet, or availability/card state leaks with no gesture in a 3rd-party context.</p>
 
 <h2>1 · Availability / privacy leak (no gesture, no merchant)</h2>
 <div class="grid">
@@ -31,7 +31,7 @@
 </div>
 
 <h2>2 · Sheet display (deceptive labels)</h2>
-<p class="sub">Edit the label/amount then trigger. These strings render on the OS-trusted sheet.</p>
+<p class="sub">Edit the label/amount then trigger. These strings render on the OS-trusted sheet. Sheet now STAYS UP so you can screen-record it.</p>
 <label>Total label (merchant name area)</label>
 <input id="tlabel" value="Apple Store">
 <label>Total amount</label>
@@ -42,6 +42,7 @@
   <button class="pay" onclick="showSheet('direct')">Trigger Apple Pay sheet</button>
   <button class="warn" onclick="showSheet('redirect')">Sheet then redirect</button>
   <button class="warn" onclick="showSheet('afternav')">Sheet after history push</button>
+  <button onclick="dismiss()">Dismiss sheet</button>
 </div>
 
 <div id="log"></div>
@@ -54,7 +55,8 @@
 const logEl=document.getElementById('log');
 const ts=()=>new Date().toISOString().substr(11,12);
 const log=m=>{logEl.textContent+=`[${ts()}] ${m}\n`;logEl.scrollTop=logEl.scrollHeight};
-const MERCHANT='merchant.com.example'; // placeholder; real bug needs a registered id
+const MERCHANT='merchant.com.example';
+let session=null;
 
 function feature(){
   log('ApplePaySession in window: '+('ApplePaySession'in window));
@@ -68,7 +70,7 @@ function canPay(){
   catch(e){log('canMakePayments err '+e.name+' '+e.message);}
 }
 function activeCard(){
-  try{ApplePaySession.canMakePaymentsWithActiveCard(MERCHANT).then(r=>log('activeCard('+MERCHANT+') = '+r+'  (leaks whether user has a provisioned card!)')).catch(e=>log('activeCard rejected '+e));}
+  try{ApplePaySession.canMakePaymentsWithActiveCard(MERCHANT).then(r=>log('activeCard('+MERCHANT+') = '+r)).catch(e=>log('activeCard rejected '+e));}
   catch(e){log('activeCard err '+e.name+' '+e.message);}
 }
 function whereami(){
@@ -87,23 +89,21 @@ function buildRequest(){
     lineItems:[{label:document.getElementById('litem').value,amount:document.getElementById('tamt').value}]
   };
 }
+function dismiss(){try{session&&session.abort();log('dismissed');}catch(e){log('dismiss err '+e);}}
 function showSheet(mode){
   log('=== show sheet ('+mode+') ===');
   if(!('ApplePaySession'in window)){log('  ApplePaySession unavailable');return;}
-  let session;
   try{session=new ApplePaySession(3,buildRequest());}
   catch(e){log('  constructor threw: '+e.name+' '+e.message);return;}
   session.onvalidatemerchant=(ev)=>{
-    log('  onvalidatemerchant fired -> SHEET IS SHOWING. validationURL='+ev.validationURL);
-    log('  (no backend/merchant cert -> will abort, but note what the sheet displayed: origin + labels)');
-    try{session.abort();}catch(e){}
+    log('  onvalidatemerchant fired -> SHEET IS SHOWING and will STAY UP.');
+    log('  >>> SCREEN-RECORD NOW: read the origin/domain line + labels on the sheet <<<');
+    // intentionally do NOT abort and do NOT complete validation: leaves sheet visible
   };
   session.oncancel=()=>log('  sheet cancelled/dismissed');
   session.onpaymentmethodselected=()=>{try{session.completePaymentMethodSelection({newTotal:buildRequest().total,newLineItems:buildRequest().lineItems});}catch(e){}};
-  try{
-    session.begin();
-    log('  begin() called — sheet should appear now. CHECK: which origin/domain does it show?');
-  }catch(e){log('  begin() threw: '+e.name+' '+e.message);return;}
+  try{session.begin();log('  begin() called — sheet should appear. Which origin/domain does it show?');}
+  catch(e){log('  begin() threw: '+e.name+' '+e.message);return;}
   if(mode==='redirect'){setTimeout(()=>{log('  redirecting while sheet up...');location.href='https://apple.com';},600);}
   if(mode==='afternav'){history.pushState({},'','?paid=1');log('  pushed history state under the sheet');}
 }
