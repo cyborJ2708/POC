@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<title>PoC R2 - Permission State Machine</title>
+<style>
+  body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:0;padding:12px;background:#f2f2f7;color:#111}
+  h1{font-size:17px;margin:0 0 2px}
+  h2{font-size:14px;margin:16px 0 6px;color:#333;border-top:1px solid #ddd;padding-top:10px}
+  .sub{font-size:12px;color:#666;margin:0 0 8px}
+  .oracle{display:flex;gap:6px;margin-bottom:10px}
+  .pill{flex:1;text-align:center;font-weight:700;font-size:12px;padding:10px 4px;border-radius:9px;color:#fff;background:#34c759}
+  .pill.on{background:#ff3b30}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  button{padding:11px 6px;font-size:12px;border:none;border-radius:8px;background:#007aff;color:#fff}
+  button.warn{background:#ff9500}button.stop{background:#8e8e93}button.seq{background:#5856d6;grid-column:1/3}
+  #log{background:#000;color:#0f0;font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:8px;border-radius:8px;height:180px;overflow:auto;white-space:pre-wrap;margin-top:10px}
+  video{position:absolute;left:-9999px;width:1px;height:1px}
+</style>
+</head>
+<body>
+<h1>Round 2 — Permission State Machine</h1>
+<p class="sub">Camera · Mic · Geolocation. Oracle pills below turn RED when active. A bug = a pill goes RED (or a permission re-grants) after you DENIED/STOPPED it, triggered only by acting on a <i>different</i> permission or a lifecycle event.</p>
+
+<div class="oracle">
+  <div id="pc" class="pill">CAM idle</div>
+  <div id="pm" class="pill">MIC idle</div>
+  <div id="pg" class="pill">GEO idle</div>
+</div>
+
+<h2>Primitive actions</h2>
+<div class="grid">
+  <button onclick="req('video')">Request CAM</button>
+  <button onclick="req('audio')">Request MIC</button>
+  <button onclick="reqGeo()">Request GEO</button>
+  <button class="stop" onclick="stop('video')">Stop CAM tracks</button>
+  <button class="stop" onclick="stop('audio')">Stop MIC tracks</button>
+  <button class="stop" onclick="stopAll()">Stop ALL</button>
+  <button onclick="perms()">Query permission states</button>
+  <button onclick="watchGeo()">watchPosition (persistent)</button>
+</div>
+
+<h2>Shape 1 — Pair matrix (deny A → allow B → re-check A)</h2>
+<p class="sub">Run a sequence, DENY the first prompt, ALLOW the second, then watch if the denied pill lights up.</p>
+<div class="grid">
+  <button class="seq" onclick="pair('video','audio')">deny CAM → allow MIC → re-request CAM</button>
+  <button class="seq" onclick="pair('video','geo')">deny CAM → allow GEO → re-request CAM</button>
+  <button class="seq" onclick="pair('audio','video')">deny MIC → allow CAM → re-request MIC</button>
+  <button class="seq" onclick="pair('audio','geo')">deny MIC → allow GEO → re-request MIC</button>
+  <button class="seq" onclick="pairGeo('video')">deny GEO → allow CAM → re-request GEO</button>
+  <button class="seq" onclick="pairGeo('audio')">deny GEO → allow MIC → re-request GEO</button>
+</div>
+
+<h2>Shape 2 — Lifecycle survival</h2>
+<p class="sub">Grant something first, then trigger a lifecycle event and watch if the pill stays RED past when it should die.</p>
+<div class="grid">
+  <button class="warn" onclick="bfcache()">Grant then bfcache (nav away + Back)</button>
+  <button class="warn" onclick="location.reload()">Reload page (keep stream?)</button>
+  <button class="warn" onclick="hide()">Instructions: background the tab</button>
+  <button class="warn" onclick="pwaNote()">Instructions: PWA relaunch</button>
+</div>
+
+<h2>Shape 3 — Prompt collision</h2>
+<p class="sub">Fire two prompts almost together. Bug = answering one grants the other, or one pill lights without you allowing it.</p>
+<div class="grid">
+  <button class="seq" onclick="collide('video','audio')">CAM + MIC simultaneously</button>
+  <button class="seq" onclick="collide('video','geo')">CAM + GEO simultaneously</button>
+  <button class="seq" onclick="collideBoth()">CAM, MIC, GEO all at once</button>
+</div>
+
+<div id="log"></div>
+<div class="grid" style="margin-top:8px">
+  <button class="stop" onclick="navigator.clipboard.writeText(document.getElementById('log').textContent)">Copy log</button>
+  <button class="stop" onclick="document.getElementById('log').textContent=''">Clear log</button>
+</div>
+<video id="v" autoplay playsinline muted></video>
+
+<script>
+const logEl=document.getElementById('log');
+const ts=()=>new Date().toISOString().substr(11,12);
+const log=m=>{logEl.textContent+=`[${ts()}] ${m}\n`;logEl.scrollTop=logEl.scrollHeight};
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+let tracks=[];let geoWatch=null;let geoActive=false;
+
+function reg(s,label){s.getTracks().forEach(t=>{tracks.push(t);log(`  +${label} ${t.kind} ${t.readyState}`);t.onended=()=>log(`  -${t.kind} ended`)});document.getElementById('v').srcObject=s}
+async function req(kind){const c=kind==='video'?{video:true}:{audio:true};log(`getUserMedia ${kind}`);try{const s=await navigator.mediaDevices.getUserMedia(c);log('  GRANTED '+kind);reg(s,kind)}catch(e){log('  DENIED '+kind+' '+e.name)}}
+function reqGeo(){log('geolocation.getCurrentPosition');geoActive=true;navigator.geolocation.getCurrentPosition(p=>{log('  GEO granted');geoActive=false},e=>{log('  GEO err '+e.code);geoActive=false})}
+function watchGeo(){if(geoWatch){navigator.geolocation.clearWatch(geoWatch);geoWatch=null;log('cleared watch');return}geoWatch=navigator.geolocation.watchPosition(p=>{},e=>{});log('watchPosition started id='+geoWatch)}
+function stop(kind){const n=tracks.filter(t=>t.kind===kind);n.forEach(t=>t.stop());tracks=tracks.filter(t=>t.kind!==kind);log(`stopped ${n.length} ${kind}`)}
+function stopAll(){tracks.forEach(t=>t.stop());tracks=[];if(geoWatch){navigator.geolocation.clearWatch(geoWatch);geoWatch=null}log('stopped all')}
+async function perms(){for(const n of['camera','microphone','geolocation']){try{const s=await navigator.permissions.query({name:n});log(`perm ${n} = ${s.state}`)}catch(e){log(`perm ${n} n/a`)}}}
+
+async function pair(a,b){log(`=== PAIR deny ${a} -> allow ${b} -> re-request ${a} ===`);log('DENY the '+a+' prompt now');await req(a);await wait(600);log('ALLOW the '+b+' prompt now');await req(b);await wait(600);log('re-requesting '+a);await req(a)}
+async function pairGeo(b){log(`=== PAIR deny GEO -> allow ${b} -> re-request GEO ===`);log('DENY the GEO prompt');reqGeo();await wait(1500);log('ALLOW '+b);await req(b);await wait(600);log('re-request GEO');reqGeo()}
+
+async function bfcache(){log('=== bfcache: granting CAM+MIC, then navigating away ===');await req('video');await wait(400);await req('audio');await wait(400);log('navigating to helper.html — tap the browser BACK button to return');await wait(800);location.href='helper.html'}
+
+function hide(){log('Background test: press Home / switch apps for 10s, then return. Watch if pills stay RED and the status-bar dot stays on.')}
+function pwaNote(){log('PWA test: Add to Home Screen, grant CAM, close the app from app-switcher, relaunch. Check if permission auto-grants or stream resumes.')}
+
+async function collide(a,b){log(`=== COLLISION ${a} + ${b} ===`);const p1=a==='geo'?new Promise(r=>navigator.geolocation.getCurrentPosition(()=>r('geo ok'),()=>r('geo deny'))):navigator.mediaDevices.getUserMedia(a==='video'?{video:true}:{audio:true}).then(s=>{reg(s,a);return a+' ok'}).catch(e=>a+' deny');const p2=b==='geo'?new Promise(r=>navigator.geolocation.getCurrentPosition(()=>r('geo ok'),()=>r('geo deny'))):navigator.mediaDevices.getUserMedia(b==='video'?{video:true}:{audio:true}).then(s=>{reg(s,b);return b+' ok'}).catch(e=>b+' deny');const r=await Promise.allSettled([p1,p2]);log('  results: '+JSON.stringify(r.map(x=>x.value)))}
+async function collideBoth(){log('=== COLLISION cam+mic+geo ===');collide('video','audio');await wait(50);reqGeo()}
+
+// oracle
+setInterval(()=>{
+  const cam=tracks.some(t=>t.kind==='video'&&t.readyState==='live');
+  const mic=tracks.some(t=>t.kind==='audio'&&t.readyState==='live');
+  const geo=geoActive||geoWatch!=null;
+  document.getElementById('pc').className='pill'+(cam?' on':'');document.getElementById('pc').textContent=cam?'CAM LIVE':'CAM idle';
+  document.getElementById('pm').className='pill'+(mic?' on':'');document.getElementById('pm').textContent=mic?'MIC LIVE':'MIC idle';
+  document.getElementById('pg').className='pill'+(geo?' on':'');document.getElementById('pg').textContent=geo?'GEO active':'GEO idle';
+},400);
+
+// bfcache restore detection
+window.addEventListener('pageshow',e=>{if(e.persisted)log('pageshow persisted=TRUE (restored from bfcache) — are tracks still live? '+tracks.filter(t=>t.readyState==='live').length+' live');});
+document.addEventListener('visibilitychange',()=>log('visibility -> '+document.visibilityState+' | live tracks='+tracks.filter(t=>t.readyState==='live').length));
+log('ready. secure='+window.isSecureContext+' standalone='+(navigator.standalone||matchMedia('(display-mode:standalone)').matches));
+</script>
+</body>
+</html>
