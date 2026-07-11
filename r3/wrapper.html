@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wrapper (Domain A)</title>
+<style>body{font-family:-apple-system,sans-serif;margin:0;padding:8px;background:#eef}
+iframe{width:100%;height:88vh;border:2px solid #007aff;border-radius:8px}
+p{font-size:12px;color:#333}</style>
+</head>
+<body>
+<p><b>This wrapper is DOMAIN A.</b> It embeds the Apple Pay probe from DOMAIN B in the iframe below. Trigger the sheet inside the iframe and check: does the Apple Pay sheet display DOMAIN A (top, correct) or DOMAIN B (iframe) or something blank/spoofable? Set the iframe src to your domain-B URL.</p>
+<!-- Change src to the domain-B hosted applepay.html. allow="payment" lets the iframe request payment. Test WITH and WITHOUT it. -->
+<iframe id="f" src="https://REPLACE-WITH-DOMAIN-B.example/applepay.html" allow="payment"></iframe>
+<script>
+  // To test the no-permission case, remove allow="payment" above and reload.
+  document.title='Domain A wrapper';
+</script>
+</body>
+</html>
