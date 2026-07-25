@@ -52,15 +52,16 @@
   </fieldset>
 
   <div class="row2">
-    <div>
-      <label class="fld" for="pdelay">Picker delay (s) — delayed mode</label>
+    <div id="ndelayBox">
+      <label class="fld" for="ndelay">Navigate after picker opens (s) — small = cleaner overlay</label>
+      <input id="ndelay" type="number" min="0" step="0.1" value="0.4">
+    </div>
+    <div id="pdelayBox" style="display:none">
+      <label class="fld" for="pdelay">Picker delay (s) — delayed/patched mode only</label>
       <input id="pdelay" type="number" min="0" step="0.5" value="3">
     </div>
-    <div>
-      <label class="fld" for="ndelay">Navigate after (s) — picker-first</label>
-      <input id="ndelay" type="number" min="0" step="0.5" value="1">
-    </div>
   </div>
+  <p id="hint" style="font-size:.8rem;color:#666"></p>
   <div class="row">
     <label class="fld" for="url">Trusted URL</label>
     <input id="url" type="url" value="https://www.google.com" autocapitalize="off" autocorrect="off">
@@ -81,6 +82,19 @@
     document.getElementById('support').textContent =
       'secureContext: ' + window.isSecureContext + ' | showSaveFilePicker: ' +
       (('showSaveFilePicker' in window) ? 'yes' : 'no');
+
+    // Mode-aware timing UI: picker-first/contextmenu use ndelay; delayed uses pdelay.
+    function updateModeUI() {
+      const m = mode();
+      const delayed = (m === 'delayed');
+      document.getElementById('ndelayBox').style.display = delayed ? 'none' : 'block';
+      document.getElementById('pdelayBox').style.display = delayed ? 'block' : 'none';
+      document.getElementById('hint').textContent = delayed
+        ? 'Delayed mode = the PATCHED pattern: navigates first, then fires the picker while the page is inactive. Expected to be suppressed on fixed Chrome (baseline check).'
+        : 'The picker opens immediately (while active) — this is what bypasses the fix; it cannot be delayed until after navigation. Only the navigate delay is tunable.';
+    }
+    document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', updateModeUI));
+    updateModeUI();
 
     document.getElementById('prime').onclick = () => {
       const w = window.open('about:blank', '_blank');
