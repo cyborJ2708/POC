@@ -3,7 +3,7 @@
 </head>
 
 <body>
-    <a href="javascript:window.open('https://www.amazon.com:1234/','x');" onclick="startSpoof()">Spoof</a>
+    <a href="javascript:window.open('https://www.amazon.com/','x');" onclick="startSpoof()">Spoof</a>
 </body>
     
     <script>
@@ -15,7 +15,7 @@
         windowSpoof.location.href !== 'about:blank';
       }
       catch (e) {
-        windowSpoof.location.href='https://www.google.com/csi';
+        windowSpoof.location.href='https://www.google.com:1234';
       }
     }
     
